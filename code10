@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# Set the desired tag key and value
+TAG_KEY="your_tag_key"
+TAG_VALUE="your_tag_value"
+
+# Retrieve the list of snapshots with the specified tag key and value
+SNAPSHOT_IDS=$(aws ec2 describe-snapshots --filters "Name=tag:${TAG_KEY},Values=${TAG_VALUE}" --query "Snapshots[].SnapshotId" --output text)
+
+# Initialize variables for unassigned snapshots
+UNASSIGNED_SNAPSHOT_IDS=""
+
+# Iterate over each snapshot ID
+for SNAPSHOT_ID in $SNAPSHOT_IDS; do
+  # Check if the snapshot is unassigned
+  VOLUME_ID=$(aws ec2 describe-snapshots --snapshot-ids $SNAPSHOT_ID --query "Snapshots[].VolumeId" --output text)
+  if [[ -z "$VOLUME_ID" ]]; then
+    UNASSIGNED_SNAPSHOT_IDS+="$SNAPSHOT_ID "
+  fi
+done
+
+# Calculate the timestamp for 10 days ago
+TEN_DAYS_AGO=$(date -u -d "10 days ago" +%Y-%m-%dT%H:%M:%SZ)
+
+# Initialize variables for unassigned snapshots created before 10 days
+UNASSIGNED_SNAPSHOTS_BEFORE_10_DAYS=""
+
+# Iterate over each unassigned snapshot
+for SNAPSHOT_ID in $UNASSIGNED_SNAPSHOT_IDS; do
+  # Get the creation date of the snapshot
+  CREATION_DATE=$(aws ec2 describe-snapshots --snapshot-ids $SNAPSHOT_ID --query "Snapshots[].StartTime" --output text)
+  
+  # Check if the snapshot was created before 10 days
+  if [[ $CREATION_DATE < $TEN_DAYS_AGO ]]; then
+    UNASSIGNED_SNAPSHOTS_BEFORE_10_DAYS+="$SNAPSHOT_ID "
+  fi
+done
+
+# Print unassigned snapshots created before 10 days in table format
+echo "Unassigned Snapshots Created Before 10 Days:"
+echo "-------------------------------------------"
+echo "Snapshot ID | Creation Date"
+echo "-------------------------------------------"
+for SNAPSHOT_ID in $UNASSIGNED_SNAPSHOTS_BEFORE_10_DAYS; do
+  CREATION_DATE=$(aws ec2 describe-snapshots --snapshot-ids $SNAPSHOT_ID --query "Snapshots[].StartTime" --output text)
+  echo "$SNAPSHOT_ID | $CREATION_DATE"
+done
+echo "-------------------------------------------"
+
+# Delete the unassigned snapshots
+for SNAPSHOT_ID in $UNASSIGNED_SNAPSHOTS_BEFORE_10_DAYS; do
+  aws ec2 delete-snapshot --snapshot-id $SNAPSHOT_ID
+  if [[ $? -eq 0 ]]; then
+    echo "Snapshot $SNAPSHOT_ID deleted successfully."
+  else
+    echo "Error deleting snapshot $SNAPSHOT_ID."
+  fi
+done
