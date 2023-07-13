@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Set the desired tag key and value
+TAG_KEY="your_tag_key"
+TAG_VALUE="your_tag_value"
+
+# Calculate the timestamp for the date 10 days ago
+TEN_DAYS_AGO=$(date -u -d "10 days ago" +%Y-%m-%dT%H:%M:%SZ)
+
+# Retrieve the list of snapshots with the specified tag value
+SNAPSHOT_INFO=$(aws ec2 describe-snapshots --query "Snapshots[?Tags[?Key=='${TAG_KEY}' && Value=='${TAG_VALUE}']].{SnapshotId:SnapshotId, VolumeId:VolumeId, StartTime:StartTime}")
+
+# Iterate over each snapshot
+while IFS=$'\n' read -r line; do
+  # Extract the snapshot ID, volume ID, and creation date
+  SNAPSHOT_ID=$(echo "$line" | jq -r '.SnapshotId')
+  VOLUME_ID=$(echo "$line" | jq -r '.VolumeId')
+  CREATION_DATE=$(echo "$line" | jq -r '.StartTime')
+
+  # Check if the snapshot is unassigned and created before 10 days
+  if [[ -z "$VOLUME_ID" ]]; then
+    if [[ "$CREATION_DATE" < "$TEN_DAYS_AGO" ]]; then
+      echo "Unassigned snapshot found: $SNAPSHOT_ID"
+    fi
+  fi
+done <<< "$SNAPSHOT_INFO"
