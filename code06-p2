@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Specify the tag key and value to filter snapshots
+TAG_KEY="your-tag-key"
+TAG_VALUE="your-tag-value"
+
+# Calculate the cutoff time for unassigned snapshots
+CUTOFF_TIME=$(date -d '10 days ago' +%Y-%m-%dT%H:%M:%S)
+
+# Retrieve the list of snapshots with the specified tag
+SNAPSHOTS=$(aws ec2 describe-snapshots --filters "Name=tag:${TAG_KEY},Values=${TAG_VALUE}" --query "Snapshots[].[SnapshotId,VolumeId,StartTime]" --output text)
+
+# Iterate over the snapshots
+while read -r SNAPSHOT_ID VOLUME_ID START_TIME; do
+  # Check if the snapshot is unassigned and less than 10 days old
+  if [[ "$VOLUME_ID" == "None" && "$START_TIME" > "$CUTOFF_TIME" ]]; then
+    echo "Unassigned snapshot: $SNAPSHOT_ID"
+  fi
+done <<< "$SNAPSHOTS"
