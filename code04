@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Set the desired tag key and value
+TAG_KEY="your_tag_key"
+TAG_VALUE="your_tag_value"
+
+# Retrieve the list of instances with the specified tag value
+INSTANCES=$(aws ec2 describe-instances --filters "Name=tag:${TAG_KEY},Values=${TAG_VALUE}" --query "Reservations[].Instances[].InstanceId" --output text)
+
+# Iterate over each instance
+while IFS=$'\n' read -r instance_id; do
+  # Retrieve the list of snapshots for the instance
+  SNAPSHOTS=$(aws ec2 describe-snapshots --filters "Name=volume-id,Values=$(aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values=${instance_id}" --query "Volumes[].VolumeId" --output text)" --query "Snapshots[].SnapshotId" --output text)
+
+  # Iterate over each snapshot
+  while IFS=$'\n' read -r snapshot_id; do
+    # Check if the snapshot is unassigned and created before 10 days
+    VOLUME_ID=$(aws ec2 describe-snapshots --snapshot-ids "$snapshot_id" --query "Snapshots[].VolumeId" --output text)
+    CREATION_DATE=$(aws ec2 describe-snapshots --snapshot-ids "$snapshot_id" --query "Snapshots[].StartTime" --output text)
+
+    if [[ -z "$VOLUME_ID" ]]; then
+      if [[ "$CREATION_DATE" < "$TEN_DAYS_AGO" ]]; then
+        echo "Unassigned snapshot found: $snapshot_id"
+      fi
+    fi
+  done <<< "$SNAPSHOTS"
+done <<< "$INSTANCES"
