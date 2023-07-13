@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Set the desired tag key and value
+TAG_KEY="your_tag_key"
+TAG_VALUE="your_tag_value"
+
+# Retrieve the list of snapshots with the specified tag key and value
+SNAPSHOT_INFO=$(aws ec2 describe-snapshots --filters "Name=tag:${TAG_KEY},Values=${TAG_VALUE}" --output json)
+
+# Extract unassigned snapshots from the retrieved snapshot information
+UNASSIGNED_SNAPSHOTS=$(echo "$SNAPSHOT_INFO" | jq -r '.Snapshots[] | select(.VolumeId == null)')
+
+# Get the current timestamp
+CURRENT_TIMESTAMP=$(date +%s)
+
+# Initialize an array to store snapshots older than 2 days
+SNAPSHOTS_TO_DELETE=()
+
+# Iterate over each unassigned snapshot
+while IFS=$'\n' read -r snapshot; do
+  # Extract the snapshot ID and creation date
+  SNAPSHOT_ID=$(echo "$snapshot" | jq -r '.SnapshotId')
+  CREATION_DATE=$(echo "$snapshot" | jq -r '.StartTime')
+
+  # Convert the creation date to timestamp
+  SNAPSHOT_TIMESTAMP=$(date -d "$CREATION_DATE" +%s)
+
+  # Calculate the number of seconds in 2 days
+  TWO_DAYS_SECONDS=$((2 * 24 * 60 * 60))
+
+  # Check if the snapshot is older than 2 days
+  if ((CURRENT_TIMESTAMP - SNAPSHOT_TIMESTAMP > TWO_DAYS_SECONDS)); then
+    SNAPSHOTS_TO_DELETE+=("$snapshot")
+  fi
+done <<< "$UNASSIGNED_SNAPSHOTS"
+
+# Print the information of snapshots older than 2 days in table format
+echo "Snapshot ID    Creation Date"
+echo "----------------------------------"
+for snapshot in "${SNAPSHOTS_TO_DELETE[@]}"; do
+  SNAPSHOT_ID=$(echo "$snapshot" | jq -r '.SnapshotId')
+  CREATION_DATE=$(echo "$snapshot" | jq -r '.StartTime')
+  echo "$SNAPSHOT_ID   $CREATION_DATE"
+done
+
+# Delete the unassigned snapshots
+for snapshot in "${SNAPSHOTS_TO_DELETE[@]}"; do
+  SNAPSHOT_ID=$(echo "$snapshot" | jq -r '.SnapshotId')
+  aws ec2 delete-snapshot --snapshot-id "$SNAPSHOT_ID"
+  if [[ $? -eq 0 ]]; then
+    echo "Snapshot $SNAPSHOT_ID deleted successfully."
+  else
+    echo "Error deleting snapshot $SNAPSHOT_ID."
+  fi
+done
